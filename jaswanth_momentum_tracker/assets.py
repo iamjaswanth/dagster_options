@@ -21,7 +21,7 @@ TOKEN = "FPNYSK4M3YFZM6GF6VCIVYDFNI"
 TARGET_ALLOCATION = 15000
 
 # Slack Configuration
-SLACK_TOKEN = "xoxb-8712729952679-8712805895015-5AXiTkZC4a1o2v5d80jwfbFi"  # Consider using environment variables
+  # Consider using environment variables
 SLACK_TOKEN = os.getenv("SLACK_TOKEN")  # Load from environment variables
 SLACK_CHANNEL = "options-trading-signals"  # Fixed typo from "singals" to "signals"
 BOT_NAME = "OptionsTradingBot"
