@@ -10,6 +10,8 @@ from SmartApi import SmartConnect
 from logzero import logger
 import json
 import time
+from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
 
 # Constants & Credentials (consider moving to config)
 API_KEY = 'fYXsEaUG'
@@ -17,6 +19,30 @@ USERNAME = 'V111503'
 PWD = '1995'
 TOKEN = "FPNYSK4M3YFZM6GF6VCIVYDFNI"
 TARGET_ALLOCATION = 15000
+
+# Slack Configuration
+  # Consider using environment variables
+SLACK_TOKEN = os.getenv("SLACK_TOKEN")  # Load from environment variables
+SLACK_CHANNEL = "options-trading-signals"  # Fixed typo from "singals" to "signals"
+BOT_NAME = "OptionsTradingBot"
+
+# Initialize Slack client
+slack_client = WebClient(token=SLACK_TOKEN)
+
+def send_slack_message(message, attachments=None):
+    try:
+        response = slack_client.chat_postMessage(
+            channel="options-trading-singals" ,
+            text=message,
+            username="OptionsTradingBot",
+            icon_emoji=":chart_with_upwards_trend:",
+            attachments=attachments
+        )
+        logger.info(f"Message sent to Slack: {response['ts']}")
+        return response
+    except SlackApiError as e:
+        logger.error(f"Slack API error: {e.response['error']}")
+        raise e
 
 # Helper functions that can be used by multiple assets
 def heikinashi(df: pd.DataFrame) -> pd.DataFrame:
@@ -87,7 +113,7 @@ def option_chain_bear_spread(instrument_list, ticker, underlying_price, duration
     min_day = np.sort(df["time_to_expiry"].unique())[duration]
     temp = df[df["time_to_expiry"] == min_day].sort_values(by="strike").reset_index(drop=True)
     atm_idx = abs(temp["strike"] - underlying_price).argmin()
-    return temp.iloc[[atm_idx + 8, atm_idx + 10]]
+    return temp.iloc[[atm_idx + 6, atm_idx + 8]]
 
 def option_chain_bull_spread(instrument_list, ticker, underlying_price, duration=0):
     df = option_contracts(instrument_list, ticker, option_type="PE")
@@ -127,7 +153,7 @@ def option_spreads(instrument_list):
 def check_signal(option_spreads, instrument_list):
     obj = get_smart_api_connection()
     
-    # Set date range (you may want to parameterize these)
+    # Set date range
     end_date = datetime.now().strftime("%Y-%m-%d %H:%M")
     start_date = (datetime.now() - dt.timedelta(days=7)).strftime("%Y-%m-%d %H:%M")
     
@@ -149,20 +175,59 @@ def check_signal(option_spreads, instrument_list):
     # Calculate Heikin-Ashi
     zap_ashi = heikinashi(df)
     zap_ashi['Signal'] = None
-    zap_ashi.loc[zap_ashi['open'] == zap_ashi['high'], 'Signal'] = 'sell'
-    zap_ashi.loc[zap_ashi['open'] == zap_ashi['low'], 'Signal'] = 'buy'
-
-    logger.info(zap_ashi[['open', 'high', 'low', 'close', 'Signal']].dropna())
+    zap_ashi.loc[zap_ashi['open'] == zap_ashi['high'], 'Signal'] = 'SELL'
+    zap_ashi.loc[zap_ashi['open'] == zap_ashi['low'], 'Signal'] = 'BUY'
 
     last_row = zap_ashi.dropna(subset=['Signal']).iloc[-1]
-    signal = last_row['Signal'].lower()
+    signal = last_row['Signal'].upper()
     last_high = last_row['high']
     strike_level = int(round(last_high, -2))
 
-    logger.info(f"📉 Signal: {signal.upper()} | Strike Level: {strike_level}")
+    # Get the appropriate spread based on signal
+    if signal == "BUY":
+        spread = option_spreads["bull_spread"]
+        spread_type = "Bull Spread (PE)"
+    else:
+        spread = option_spreads["bear_spread"]
+        spread_type = "Bear Spread (CE)"
+    
+    # Format spread details for Slack message
+    spread_details = "\n".join([
+        f"• {row['symbol']} - Strike: {row['strike']}" 
+        for row in spread
+    ])
+    
+    # Prepare Slack message
+    message = f"🚨 *NEW TRADING SIGNAL* 🚨\n\n" \
+              f"*Signal Type*: {signal}\n" \
+              f"*Strike Level*: {strike_level}\n" \
+              f"*{spread_type}*:\n{spread_details}\n" \
+              f"*Time*: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    
+    # Add color to message based on signal
+    color = "#36a64f" if signal == "BUY" else "#ff0000"
+    
+    attachments = [{
+        "color": color,
+        "fields": [
+            {"title": "Recommended Action", "value": f"Consider {signal} positions", "short": False},
+            {"title": "Current Underlying Price", "value": str(last_high), "short": True},
+            {"title": "Suggested Strike", "value": str(strike_level), "short": True},
+            {"title": "Recommended Spread", "value": spread_type, "short": True},
+            {"title": "Spread Contracts", "value": spread_details.replace("• ", ""), "short": False}
+        ],
+        "footer": "Options Trading Bot"
+    }]
+
+    # Send to Slack
+    send_slack_message(message, attachments=attachments)
+    
+    logger.info(f"Signal detected: {signal} | Strike Level: {strike_level}")
     
     return {
         "signal": signal,
         "strike_level": strike_level,
+        "spread_type": spread_type,
+        "spread_details": spread,
         "timestamp": datetime.now().isoformat()
     }
