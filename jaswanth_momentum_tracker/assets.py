@@ -14,11 +14,6 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 # Constants & Credentials (consider moving to config)
-API_KEY = 'fYXsEaUG'
-USERNAME = 'V111503'
-PWD = '1995'
-TOKEN = "FPNYSK4M3YFZM6GF6VCIVYDFNI"
-TARGET_ALLOCATION = 15000
 
 # Slack Configuration
   # Consider using environment variables
